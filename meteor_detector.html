@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<title>זיהוי כוכבים נופלים (ניסיון)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  body{background:#05060a;color:#dfefff;font-family:Arial, Helvetica, sans-serif;margin:0;padding:12px;}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  h1{margin:0;color:#66fcf1}
+  #controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  label{font-size:14px}
+  input[type=range]{width:140px}
+  #videoWrap{display:flex;justify-content:center;margin-top:12px}
+  video, canvas{max-width:100%;border:2px solid #2a9d8f;border-radius:6px}
+  #info{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .badge{background:#102027;padding:6px 10px;border-radius:6px;font-size:14px}
+  table{width:100%;margin-top:12px;border-collapse:collapse;font-size:14px}
+  th,td{border:1px solid #1e2d2b;padding:8px;text-align:center}
+  th{background:#133c3a;color:#dff}
+  #logEmpty{opacity:0.7;padding:8px}
+  button{background:#2a9d8f;color:#021; border:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  footer{margin-top:14px;font-size:13px;color:#9fb7b5}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ זיהוי מטאורים - ניסיוני (דפדפן)</h1>
+  <div id="clock" class="badge">⌚ טוען זמן...</div>
+</header>
+
+<div id="controls">
+  <label>FOV אופקי (מעלות): <input id="fovInput" type="number" value="60" style="width:70px"/>°</label>
+  <label>גובה משוער (ק״מ): <input id="altInput" type="number" value="100" style="width:80px"/> km</label>
+  <label>סף זיהוי: <input id="thresh" type="range" min="10" max="255" value="40"/></label>
+  <label>רגישות מינימלית (פיקסלים): <input id="minPix" type="number" value="30" style="width:70px"/></label>
+  <button id="toggleRec">התחל זיהוי</button>
+  <button id="clearBtn">נקה לוג</button>
+  <button id="downloadCsv">הורד CSV</button>
+</div>
+
+<div id="videoWrap">
+  <!-- וידאו מוסתר למעלה וcanvas להצגה ועיבוד -->
+  <video id="video" autoplay playsinline muted style="display:none"></video>
+  <canvas id="overlay"></canvas>
+</div>
+
+<div id="info">
+  <div class="badge" id="location">📍 מיקום: מחכה...</div>
+  <div class="badge" id="mode">מצב: מוכן</div>
+  <div class="badge" id="sensitivity">סף: 40</div>
+</div>
+
+<table>
+  <thead>
+    <tr><th>תאריך ושעה</th><th>משך (שניות)</th><th>מהירות (קמ״ש)</th><th>מרחק משוער (ק״מ)</th><th>סוג (הערכה)</th></tr>
+  </thead>
+  <tbody id="logBody"><tr><td id="logEmpty" colspan="5">עדיין לא נצפה אירוע</td></tr></tbody>
+</table>
+
+<footer>
+  <p>הערה: כל החישובים משוערים. לשיפור: חצובה, חשכה מלאה, מצלמה עם מהירות פריימים גבוהה. אל תהפוך לזה ככלי מדעי — זה ניסיוני.</p>
+</footer>
+
+<script>
+/* ====== הגדרות ומצבים ====== */
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const ctx = canvas.getContext('2d');
+const fovInput = document.getElementById('fovInput');
+const altInput = document.getElementById('altInput');
+const threshRange = document.getElementById('thresh');
+const minPixInput = document.getElementById('minPix');
+const toggleBtn = document.getElementById('toggleRec');
+const clearBtn = document.getElementById('clearBtn');
+const downloadBtn = document.getElementById('downloadCsv');
+
+const clockEl = document.getElementById('clock');
+const locationEl = document.getElementById('location');
+const modeEl = document.getElementById('mode');
+const sensEl = document.getElementById('sensitivity');
+
+let running = false;
+let prevImageData = null;
+let rafId = null;
+let log = [];
+let lastEvent = null;
+
+/* ====== שעון ====== */
+function updateClock(){ const n=new Date(); clockEl.innerText = '⌚ ' + n.toLocaleString('he-IL'); }
+setInterval(updateClock,1000); updateClock();
+
+/* ====== מקבל מיקום ====== */
+if(navigator.geolocation){
+  navigator.geolocation.getCurrentPosition(p=>{
+    locationEl.innerText = `📍 מיקום: ${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`;
+  }, e=>{
+    locationEl.innerText = '❗ לא קיבלנו מיקום';
+  }, {enableHighAccuracy:true,timeout:8000});
+}else locationEl.innerText = '❗ דפדפן לא תומך ב-GPS';
+
+/* ====== הפעלת מצלמה ====== */
+async function startCamera(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}, audio
